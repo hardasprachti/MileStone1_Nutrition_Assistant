@@ -1,50 +1,78 @@
 # Deployment Plan
 ## AI Nutrition Assistant — Milestone 1
 
-> **Goal:** Ship the current codebase (backend API routes + the latest reskinned frontend) as two
-> independent, fully-functional live deployments — one on **Vercel**, one on **Railway** — per the
-> project brief's "deploy using Vercel, Railway" requirement.
+> **Goal:** Ship the current codebase as a **split deployment** — the backend (`/api/chat` +
+> conversation store) live on **Railway**, the frontend (the latest reskinned UI) live on
+> **Vercel**, calling the Railway backend cross-origin. Railway goes first, Vercel second, since
+> the frontend needs the backend's URL to point at.
 >
 > **Total Phases:** 7 | **Estimated Time:** 1–2 hours (first deploy), ~5 min per redeploy after
 
 ---
 
-## Architecture Note — Why Two *Independent* Full Deployments
+## Architecture — Split Deployment
 
-This is a single Next.js app (App Router) with the frontend pages and the `/api/chat` route living in
-the same codebase and the same build. There is no separate backend service to split out.
-
-Per `docs/architecture.md` §12 and `docs/problemStatement.md` §6, both platforms are expected as
-deploy targets for the **same app**, not a frontend/backend split:
+This is one Next.js codebase (App Router) with both the frontend pages and the `/api/chat` route
+in the same build. For a split deploy, **the same codebase is deployed to both platforms**, but
+each is configured to play a different role:
 
 ```
 GitHub repo (nutrition-assistant/)
         │
-        ├──▶ Vercel   — full app (frontend + /api/chat), serverless functions
+        ├──▶ Railway  — BACKEND OF RECORD
+        │              runs the full app as one persistent Node process;
+        │              only /api/chat is actually used; holds the live
+        │              in-memory conversationStore
         │
-        └──▶ Railway  — full app (frontend + /api/chat), one persistent Node process
+        └──▶ Vercel   — FRONTEND OF RECORD
+                       serves the pages; its own /api/chat route exists
+                       (same codebase) but is unused — the browser calls
+                       the Railway URL directly instead
 ```
 
-Each deployment is self-contained: its own build, its own env vars, its own in-memory
-`conversationStore`. They do **not** talk to each other and do not share conversation state — that's
-expected for M1 (see Known Limitations, Phase 6).
+Two code changes make this possible (already applied):
 
-If a true frontend/backend split (Vercel serving only pages, calling a separate Railway API
-cross-origin) is wanted later, that requires code changes — a configurable API base URL on the
-client and CORS headers on the route — and is **out of scope for this plan**. Flag it separately if
-you want it.
+1. **`components/ChatShell.tsx`** — fetches `` `${NEXT_PUBLIC_API_BASE_URL}/api/chat` `` instead of
+   a hardcoded relative path. Empty/unset `NEXT_PUBLIC_API_BASE_URL` falls back to same-origin
+   (so local dev is unaffected). On Vercel, this is set to the Railway URL.
+2. **`app/api/chat/route.ts`** — added an `OPTIONS` handler and CORS headers (`corsHeaders()`
+   helper). A cross-origin `POST` with a JSON body is **not** a CORS-simple request, so the
+   browser sends a preflight `OPTIONS` request first; without this the Vercel frontend's calls to
+   Railway would be silently blocked by the browser. Headers are only added when the request's
+   `Origin` matches `ALLOWED_ORIGIN` exactly — unset `ALLOWED_ORIGIN` means no CORS headers at
+   all (safe default: same-origin only).
+
+### The circular env-var dependency (read this before Phase 3/4)
+
+- Vercel needs Railway's URL (`NEXT_PUBLIC_API_BASE_URL`) — so Railway must be deployed **first**.
+- Railway needs Vercel's URL (`ALLOWED_ORIGIN`) for CORS to allow the browser calls — so Railway
+  needs a **second pass** after Vercel is deployed too.
+
+Sequence: **deploy Railway → deploy Vercel with Railway's URL → go back and set `ALLOWED_ORIGIN`
+on Railway to the Vercel URL → Railway redeploys/restarts.** This is Phase 3 → Phase 4 → Phase 4.4
+below.
+
+### What this buys vs. the two-independent-copies approach
+
+- **Conversation history is now reliable.** Railway is the single, persistent backend — its
+  in-memory store isn't subject to Vercel serverless cold-start resets anymore, since the browser
+  never touches Vercel's own API route.
+- **One source of truth.** Only one `/api/chat` is actually serving traffic; the copy that ships
+  inside the Vercel build is inert.
+- **Trade-off:** an extra moving part (CORS) and the two-pass env var setup above.
 
 ---
 
 ## Quick Reference — Phase Map
 
 ```
-Phase 1            Phase 2          Phase 3           Phase 4
-Pre-Deploy Prep ──▶ Push to GitHub ──▶ Deploy: Vercel ──▶ Deploy: Railway
-                                                              │
-                                                              ▼
+Phase 1            Phase 2            Phase 3                Phase 4
+Pre-Deploy Prep ──▶ Push to GitHub ──▶ Deploy Backend ──▶ Deploy Frontend
+                                       (Railway, first)      (Vercel, second)
+                                                                  │
+                                                                  ▼
 Phase 7             Phase 6              Phase 5
-Ongoing Redeploys ◀── Smoke Test Both ◀── Env Var Reference
+Ongoing Redeploys ◀── Smoke Test Split ◀── Env Var Reference
 ```
 
 ---
@@ -53,41 +81,18 @@ Ongoing Redeploys ◀── Smoke Test Both ◀── Env Var Reference
 
 **Objective:** Make sure what's about to ship actually builds, and that the repo is clean enough to push.
 
-### 1.1 Current Repo State (checked before writing this plan)
+### 1.1 Current repo state
 
 | Item | Status |
 |---|---|
 | Git repo | Exists at `nutrition-assistant/` (own `.git`, branch `master`) |
-| Commits | 1 — `"Initial commit from Create Next App"` |
-| Remote | **None configured** — needs `git remote add origin ...` |
-| Uncommitted work | Header/ChatShell/globals.css reskin, SourcesPanel updates, `docs/implementation-plan.md` checkbox updates — all still in the working tree |
-| `.env.local` | Present, correctly git-ignored |
-| `.env.example` | Present, but **currently git-ignored by mistake** (see 1.2) |
+| Remote | None configured yet — needs `git remote add origin ...` |
+| `.gitignore` | Fixed — `.env.example` is now trackable, only `.env.local`/`.env*.local` ignored |
+| `package.json` | `engines.node` pinned to `>=20` |
+| CORS + API base URL | Implemented in `app/api/chat/route.ts` and `components/ChatShell.tsx` |
+| `.env.example` | Updated with `ALLOWED_ORIGIN` and `NEXT_PUBLIC_API_BASE_URL` |
 
-### 1.2 Fix `.gitignore` so `.env.example` can be committed
-
-`nutrition-assistant/.gitignore` has:
-```
-# env files (can opt-in for committing if needed)
-.env*
-...
-# local env
-.env.local
-```
-
-`.env*` matches `.env.example` too, so it never gets tracked — but `.env.example` is meant to be
-committed (it's the documented list of required env vars, referenced in `docs/architecture.md`).
-Fix it to exclude only the real secrets file:
-
-```diff
-- # env files (can opt-in for committing if needed)
-- .env*
-+ # env files — keep the template, ignore anything with real secrets
-+ .env.local
-+ .env*.local
-```
-
-### 1.3 Verify the build locally
+### 1.2 Verify the build locally
 
 ```bash
 cd nutrition-assistant
@@ -96,132 +101,57 @@ npm run lint
 npm run build
 ```
 
-Both must exit 0 before touching any deploy platform. `npm run build` is exactly what Vercel and
-Railway will run — if it fails locally, it fails in CI too.
-
-### 1.4 Node version
-
-Next.js 16 needs a current Node LTS. Pin it explicitly so both platforms use the same version you
-built/tested with:
-
-```bash
-node -v   # confirm locally, e.g. v20.x
-```
-
-Add to `package.json` if not already present:
-```json
-"engines": { "node": ">=20" }
-```
+Both must exit 0 — this is exactly what Railway and Vercel will run during their own builds.
 
 **Exit criteria for Phase 1:**
-- [ ] `.gitignore` fixed so `.env.example` is trackable
 - [ ] `npm run lint` passes
 - [ ] `npm run build` passes locally
-- [ ] Node version pinned via `engines` in `package.json`
 
 ---
 
 ## Phase 2 — Push to GitHub
 
-**Objective:** Get the current working tree (reskin + doc updates) onto a GitHub remote — both
-Vercel and Railway deploy from here.
+**Objective:** Get the current working tree (reskin + split-deploy code changes) onto a GitHub
+remote — both Railway and Vercel deploy from here.
 
 ### 2.1 Commit the pending work
 
 ```bash
 cd nutrition-assistant
 git add .
-git status   # review — confirm no .env.local, no node_modules, no .next
-git commit -m "feat: reskin frontend to Vitalis AI design system, complete Phase 5/6"
+git status   # review — confirm no .env.local, node_modules, .next
+git commit -m "feat: reskin frontend, complete Phase 5/6, add CORS + API base URL for split deploy"
 ```
 
 ### 2.2 Create the GitHub repo and push
 
 ```bash
-# via GitHub CLI
 gh repo create nutrition-assistant --private --source=. --remote=origin
-
-# or manually: create the repo on github.com, then
+# or manually create the repo on github.com, then:
 git remote add origin https://github.com/<you>/nutrition-assistant.git
 git branch -M main
 git push -u origin main
 ```
 
-> Keep it **private** unless there's a reason to make it public — the repo doesn't contain secrets
-> (`.env.local` is git-ignored), but there's no need to expose it either.
-
 **Exit criteria for Phase 2:**
 - [ ] All pending changes committed
 - [ ] `git status` clean
 - [ ] Remote `origin` set, pushed to GitHub
-- [ ] Repo browsable on GitHub with the latest frontend visible in `components/`
 
 ---
 
-## Phase 3 — Deploy to Vercel
+## Phase 3 — Deploy Backend to Railway (first)
 
-**Objective:** Get the full app (frontend + `/api/chat`) live on Vercel as serverless functions.
+**Objective:** Get the Railway deployment live and its public URL in hand — Vercel needs it in
+Phase 4.
 
 ### 3.1 Connect the project
 
 **Dashboard (recommended for first deploy):**
-1. [vercel.com/new](https://vercel.com/new) → Import Git Repository → select `nutrition-assistant`.
-2. Framework preset: Vercel auto-detects **Next.js** — leave build command (`next build`) and
-   output settings as default.
-3. Root Directory: leave as `.` (the repo root **is** `nutrition-assistant/` — there's no nested
-   monorepo folder to point at, since the app has its own git repo).
-
-**Or via CLI:**
-```bash
-npm install -g vercel
-cd nutrition-assistant
-vercel login
-vercel link
-vercel --prod
-```
-
-### 3.2 Set environment variables
-
-In Project Settings → Environment Variables (apply to Production, and Preview if you want PR
-previews to work too):
-
-| Key | Value |
-|---|---|
-| `GROQ_API_KEY` | your Groq API key |
-| `LLM_MODEL` | `openai/gpt-oss-120b` |
-
-Redeploy after adding env vars (Vercel doesn't hot-reload them into an already-built deployment).
-
-### 3.3 Deploy & verify
-
-```bash
-vercel --prod
-```
-
-Open the resulting `*.vercel.app` URL and confirm:
-- [ ] Page loads, styling matches the current reskin (header nav, scope bar, footer all present)
-- [ ] Sending a nutrition question returns a real answer with claims
-- [ ] Sending a calorie/weight question gets declined
-- [ ] Network tab: no `GROQ_API_KEY` visible in any request/response
-
-**Exit criteria for Phase 3:**
-- [ ] Vercel deployment live at a public URL
-- [ ] Env vars set for Production
-- [ ] Manual smoke test (above) passes
-
----
-
-## Phase 4 — Deploy to Railway
-
-**Objective:** Get the same full app live on Railway as a persistent Node process.
-
-### 4.1 Connect the project
-
-**Dashboard (recommended for first deploy):**
 1. [railway.app/new](https://railway.app/new) → Deploy from GitHub repo → select `nutrition-assistant`.
-2. Railway's Nixpacks builder auto-detects Next.js and runs `npm install && npm run build`, then
-   `npm run start` (which is `next start`) — no Dockerfile needed.
-3. Root Directory: leave as `/` (same reasoning as Vercel — the repo root is the app root).
+2. Nixpacks auto-detects Next.js: `npm install && npm run build`, then `npm run start`
+   (`next start`) — no Dockerfile needed.
+3. Root Directory: `/` (the repo root **is** the app root — it has its own git repo).
 
 **Or via CLI:**
 ```bash
@@ -232,84 +162,155 @@ railway init
 railway up
 ```
 
-### 4.2 Set environment variables
+### 3.2 Set environment variables
 
-In the Railway service → Variables tab:
+Railway service → Variables tab:
 
 | Key | Value |
 |---|---|
 | `GROQ_API_KEY` | your Groq API key |
 | `LLM_MODEL` | `openai/gpt-oss-120b` |
+| `ALLOWED_ORIGIN` | leave blank for now — comes back in Phase 4.4 once the Vercel URL exists |
 
-Railway injects `PORT` automatically — `next start` already reads `process.env.PORT` on its own,
-so no start-script change is needed. Confirm this in the deploy logs (Next.js prints the bound
-port on boot).
+Railway injects `PORT` automatically; `next start` reads `process.env.PORT` on its own.
 
-### 4.3 Deploy & verify
+### 3.3 Generate a public domain & verify
 
-Railway auto-deploys on push once connected. Generate a public domain under
-Settings → Networking → "Generate Domain" if one isn't assigned automatically, then run the same
-checklist as 3.3 against the Railway URL:
+Settings → Networking → "Generate Domain" if one isn't assigned automatically. Note this URL —
+it's `NEXT_PUBLIC_API_BASE_URL` for Phase 4.
 
-- [ ] Page loads, styling matches the current reskin
+Test the backend directly (CORS doesn't block same-origin curl/Postman requests):
+```bash
+curl -X POST https://<your-railway-domain>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"sessionId":"smoke-test","message":"What vitamins are in spinach?"}'
+```
+
+- [ ] Returns a `200` with `{ answer, claims }`
+- [ ] A calorie/weight question returns the decline response
+
+**Exit criteria for Phase 3:**
+- [ ] Railway deployment live at a public URL
+- [ ] `GROQ_API_KEY` / `LLM_MODEL` set
+- [ ] `curl` smoke test above passes
+- [ ] Railway URL recorded for Phase 4
+
+---
+
+## Phase 4 — Deploy Frontend to Vercel (second)
+
+**Objective:** Get the frontend live on Vercel, pointed at the Railway backend, then close the
+CORS loop back on Railway.
+
+### 4.1 Connect the project
+
+**Dashboard (recommended for first deploy):**
+1. [vercel.com/new](https://vercel.com/new) → Import Git Repository → select `nutrition-assistant`.
+2. Framework preset: Vercel auto-detects **Next.js** — leave build/output settings as default.
+3. Root Directory: `.` (same reasoning as Railway).
+
+**Or via CLI:**
+```bash
+npm install -g vercel
+cd nutrition-assistant
+vercel login
+vercel link
+```
+
+### 4.2 Set environment variables
+
+Project Settings → Environment Variables (Production at minimum):
+
+| Key | Value |
+|---|---|
+| `NEXT_PUBLIC_API_BASE_URL` | the Railway URL from Phase 3.3, e.g. `https://nutrition-assistant-production.up.railway.app` (no trailing slash) |
+| `GROQ_API_KEY` / `LLM_MODEL` | optional — Vercel's own `/api/chat` copy is unused by the frontend, but set them anyway so the route doesn't 500 if hit directly |
+
+`NEXT_PUBLIC_*` vars are baked in at build time, so set this **before** the first deploy (or
+redeploy after adding it).
+
+### 4.3 Deploy & note the URL
+
+```bash
+vercel --prod
+```
+
+Note the resulting `*.vercel.app` URL (or your custom domain) — this is what goes into
+`ALLOWED_ORIGIN` next.
+
+### 4.4 Close the loop — set `ALLOWED_ORIGIN` back on Railway
+
+Railway service → Variables → set:
+
+| Key | Value |
+|---|---|
+| `ALLOWED_ORIGIN` | the exact Vercel origin from 4.3, e.g. `https://nutrition-assistant.vercel.app` — no trailing slash, no path |
+
+Railway restarts the service automatically on a variable change. Use the **stable production
+domain**, not a per-preview-deploy URL — Vercel preview deployments get a new unique subdomain
+each time and won't match a single fixed `ALLOWED_ORIGIN`.
+
+### 4.5 Verify end-to-end
+
+Open the Vercel URL and confirm:
+- [ ] Page loads, styling matches the current reskin (header nav, scope bar, footer all present)
 - [ ] Sending a nutrition question returns a real answer with claims
-- [ ] Sending a calorie/weight question gets declined
-- [ ] Network tab: no `GROQ_API_KEY` visible in any request/response
+- [ ] DevTools → Network tab: the `/api/chat` request goes to the **Railway** domain, not the
+      Vercel domain
+- [ ] No CORS error in the console
+- [ ] Network tab: no `GROQ_API_KEY` visible anywhere
 
 **Exit criteria for Phase 4:**
-- [ ] Railway deployment live at a public URL
-- [ ] Env vars set
-- [ ] Manual smoke test (above) passes
+- [ ] Vercel deployment live, `NEXT_PUBLIC_API_BASE_URL` set to Railway's URL
+- [ ] `ALLOWED_ORIGIN` set on Railway to the Vercel URL, Railway restarted
+- [ ] End-to-end verification above passes, no CORS errors
 
 ---
 
 ## Phase 5 — Environment Variable Reference
 
-One table, both platforms need the same two keys:
-
-| Variable | Required | Notes |
-|---|---|---|
-| `GROQ_API_KEY` | Yes | Server-only. Never exposed to the browser — used exclusively in `lib/llm.ts`. |
-| `LLM_MODEL` | Yes | `openai/gpt-oss-120b` (production tier). Falls back to this value in code if unset, but set it explicitly for clarity. |
-| `SESSION_SECRET` | No | Listed in `docs/architecture.md` as a future option for signing session IDs — **not referenced anywhere in the current code**. Skip it. |
-
-> **Never** put `GROQ_API_KEY` in a `NEXT_PUBLIC_*` variable or in any client component — it must
-> only be read inside `lib/llm.ts` (server-only, called from `app/api/chat/route.ts`).
+| Variable | Set on | Required | Notes |
+|---|---|---|---|
+| `GROQ_API_KEY` | Railway | Yes | Server-only, used exclusively in `lib/llm.ts`. Never in a `NEXT_PUBLIC_*` var. |
+| `LLM_MODEL` | Railway | Yes | `openai/gpt-oss-120b`. |
+| `ALLOWED_ORIGIN` | Railway | Yes (for split deploy) | Exact Vercel origin, no trailing slash. CORS is closed (same-origin only) until this is set. |
+| `NEXT_PUBLIC_API_BASE_URL` | Vercel | Yes (for split deploy) | Railway's public URL. Baked in at build time — changing it requires a redeploy. |
+| `GROQ_API_KEY` / `LLM_MODEL` | Vercel | Optional | Only exercised if someone hits Vercel's own `/api/chat` directly; the frontend itself never calls it. |
+| `SESSION_SECRET` | — | No | Listed in `docs/architecture.md` as a future option, not referenced anywhere in current code. Skip it. |
 
 ---
 
-## Phase 6 — Cross-Platform Smoke Testing & Known Limitations
+## Phase 6 — Cross-Origin Smoke Testing & Known Limitations
 
-**Objective:** Confirm both live deployments behave identically, and document what's expected to
-differ.
+**Objective:** Confirm the split actually works end-to-end, not just that both platforms boot.
 
-### 6.1 Test matrix (run against both URLs)
+### 6.1 Test matrix (run against the Vercel URL — that's the one users see)
 
-| # | Action | Expected on both |
+| # | Action | Expected |
 |---|---|---|
-| 1 | Load the home page | Latest reskinned UI (header nav, scope bar, chat, sources panel, footer) |
+| 1 | Load the Vercel URL | Latest reskinned UI |
 | 2 | Ask "What vitamins are in spinach?" | Structured answer + claims list |
-| 3 | Ask a follow-up in the same session | Response reflects prior context |
-| 4 | Ask "How many calories should I eat?" | Declined, no LLM call (instant response) |
+| 3 | Ask a follow-up in the same session | Response reflects prior context (now reliable — see Architecture note) |
+| 4 | Ask "How many calories should I eat?" | Declined, instant (no LLM call) |
 | 5 | Ask "Diagnose my iron deficiency" | Declined |
-| 6 | Refresh the page mid-conversation | Conversation resets (new `sessionId` — expected, no persistence layer yet) |
-| 7 | Open DevTools → Network tab while sending a message | No API key in request headers, body, or response |
+| 6 | DevTools → Network tab | Requests go to the Railway domain; an `OPTIONS` preflight precedes the first `POST`; response has `Access-Control-Allow-Origin` matching the Vercel origin |
+| 7 | DevTools → Console | No CORS errors |
+| 8 | Open the **Railway** URL directly in a browser | Its own frontend also loads and works (bonus — same codebase) but is not the URL users are given |
 
-### 6.2 Known limitations (both platforms, by design for M1)
+### 6.2 Known limitations
 
-- **In-memory conversation store** (`lib/conversationStore.ts`) is a process-local `Map`. It resets
-  on every redeploy and every server restart. On Railway (one long-running process) it survives
-  between requests reliably during normal operation. On Vercel (serverless functions) it *may* reset
-  between requests if the function cold-starts on a different instance — multi-turn history is not
-  guaranteed to persist there. This is the same limitation `docs/architecture.md` already documents
-  for M1; the fix is the Postgres swap planned for M2, and it drops in without touching the handler.
-- **Vercel and Railway don't share state.** A conversation started on the Vercel URL is invisible to
-  the Railway URL and vice versa — they're two separate live instances of the same app.
+- **Still in-memory** (`lib/conversationStore.ts`). Resets on every Railway redeploy/restart —
+  the M2 Postgres swap is the real fix, and the interface is already shaped for it.
+- **`ALLOWED_ORIGIN` is a single exact string.** If you add a custom domain on Vercel or use
+  preview deployments, those won't match and will get CORS-blocked. Point `ALLOWED_ORIGIN` at
+  whichever origin end users actually load.
+- **Railway's own frontend copy still works** (same codebase) but isn't the one being tested/
+  shared — don't confuse it with the Vercel URL when smoke testing.
 
 **Exit criteria for Phase 6:**
 - [ ] Test matrix passes on the Vercel URL
-- [ ] Test matrix passes on the Railway URL
-- [ ] Both URLs recorded (README or team doc)
+- [ ] No CORS errors in console
+- [ ] Both URLs recorded (README or team doc), Vercel URL marked as the one to share
 
 ---
 
@@ -319,28 +320,28 @@ differ.
 
 ### 7.1 Auto-deploy behavior
 
-Both platforms are connected to the GitHub repo and redeploy automatically on push to `main`:
-
+Both platforms redeploy automatically on push to `main`:
 ```bash
 git add .
 git commit -m "..."
 git push
 ```
 
-No manual `vercel --prod` / `railway up` needed after the initial link — only run those manually
-for one-off deploys from a local branch that isn't pushed yet.
-
 ### 7.2 Rollback
 
-- **Vercel:** Deployments tab → pick a previous deployment → "Promote to Production." Instant, no
-  rebuild.
-- **Railway:** Deployments tab on the service → pick a previous deployment → "Redeploy."
+- **Railway:** Deployments tab → pick a previous deployment → "Redeploy."
+- **Vercel:** Deployments tab → pick a previous deployment → "Promote to Production."
 
-### 7.3 Prompt-change discipline
+### 7.3 If the Vercel URL ever changes
+
+Custom domain added, project renamed, etc. — update `ALLOWED_ORIGIN` on Railway to match, or the
+frontend will start getting CORS errors on every request.
+
+### 7.4 Prompt-change discipline
 
 Per `docs/architecture.md` §14 — any change to `lib/systemPrompt.ts` should be re-run through the
-fixed 10-question suite (`tests/questions.ts`) and logged in `docs/failureLog.md` **before** pushing,
-since a push here immediately goes live on both platforms.
+fixed 10-question suite (`tests/questions.ts`) and logged in `docs/failureLog.md` **before**
+pushing, since a push here goes live on Railway (the real backend) immediately.
 
 **Exit criteria for Phase 7:**
 - [ ] Confirmed auto-deploy fires on a test push to both platforms
@@ -352,23 +353,24 @@ since a push here immediately goes live on both platforms.
 
 | Phase | Deliverable | Done |
 |---|---|---|
-| 1 — Pre-Deploy Prep | Build verified, `.gitignore` fixed, Node pinned | [ ] |
-| 2 — Push to GitHub | Repo pushed with latest frontend + docs | [ ] |
-| 3 — Vercel Deploy | Live, env vars set, smoke test passed | [ ] |
-| 4 — Railway Deploy | Live, env vars set, smoke test passed | [ ] |
+| 1 — Pre-Deploy Prep | Build verified locally | [ ] |
+| 2 — Push to GitHub | Repo pushed with latest frontend + CORS/API-base-URL code | [ ] |
+| 3 — Railway (backend) | Live, env vars set, `curl` smoke test passed | [ ] |
+| 4 — Vercel (frontend) | Live, calling Railway, CORS loop closed | [ ] |
 | 5 — Env Var Reference | Documented, no secrets leaked | [x] |
-| 6 — Cross-Platform Test | Both URLs verified against same test matrix | [ ] |
+| 6 — Cross-Origin Test | Full test matrix passes, no CORS errors | [ ] |
 | 7 — Ongoing Redeploys | Auto-deploy + rollback confirmed | [ ] |
 
 ---
 
 ## Post-Deploy Smoke Test (paste into PR/handoff notes once done)
 
-| Check | Vercel | Railway |
-|---|---|---|
-| App loads | [ ] | [ ] |
-| Chat message gets a response | [ ] | [ ] |
-| Calorie question gets declined | [ ] | [ ] |
-| API key not visible in Network tab | [ ] | [ ] |
-| Sources panel visible but empty | [ ] | [ ] |
-| Latest reskinned UI visible (header/scope bar/footer) | [ ] | [ ] |
+| Check | Result |
+|---|---|
+| Railway backend responds to direct `curl` | [ ] |
+| Vercel frontend loads with latest reskin | [ ] |
+| Chat message on Vercel gets a response (via Railway) | [ ] |
+| Calorie question gets declined | [ ] |
+| No CORS errors in console | [ ] |
+| API key not visible in Network tab | [ ] |
+| Sources panel visible but empty | [ ] |

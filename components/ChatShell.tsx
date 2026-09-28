@@ -11,6 +11,11 @@ import styles from "./ChatShell.module.css";
 const FALLBACK_ERROR =
   "Something went wrong reaching the assistant. Please try again in a moment.";
 
+// Split deploy (Vercel frontend → Railway backend): set NEXT_PUBLIC_API_BASE_URL
+// to the Railway origin. Unset (same-origin deploys, local dev) falls back to
+// a relative fetch against this app's own /api/chat route.
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+
 export default function ChatShell() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -28,7 +33,7 @@ export default function ChatShell() {
     setIsLoading(true);
 
     try {
-      const res = await fetch("/api/chat", {
+      const res = await fetch(`${API_BASE_URL}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId, message: text }),
