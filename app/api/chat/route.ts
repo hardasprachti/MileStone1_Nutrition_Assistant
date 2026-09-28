@@ -1,0 +1,99 @@
+// app/api/chat/route.ts
+// POST /api/chat — main chat endpoint.
+// Phase 2: full input validation + conversation store + LLM call.
+// Phase 3: schema parsing.
+// Phase 4: scope guard (this phase).
+// Phase 6: final integration of all layers.
+
+import { NextRequest, NextResponse } from "next/server";
+import { getHistory, appendTurn } from "@/lib/conversationStore";
+import { callLLM, type ChatMessage } from "@/lib/llm";
+import { SYSTEM_PROMPT } from "@/lib/systemPrompt";
+import { parseResponse } from "@/lib/schema";
+import { checkScope } from "@/lib/scopeGuard";
+
+/** Maximum number of previous turns to include (guards against context overflow). */
+const MAX_HISTORY_TURNS = 10;
+
+export async function POST(req: NextRequest) {
+  // ── 1. Parse & validate request body ─────────────────────────────────────
+  let body: { sessionId?: unknown; message?: unknown };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Request body must be valid JSON." },
+      { status: 400 }
+    );
+  }
+
+  const { sessionId, message } = body;
+
+  if (!sessionId || typeof sessionId !== "string") {
+    return NextResponse.json(
+      { error: "sessionId is required and must be a string." },
+      { status: 400 }
+    );
+  }
+
+  if (!message || typeof message !== "string" || !message.trim()) {
+    return NextResponse.json(
+      { error: "message is required and must be a non-empty string." },
+      { status: 400 }
+    );
+  }
+
+  const trimmedMessage = message.trim();
+
+  // ── 2. Scope guard — block forbidden topics before spending an LLM call ──
+  const blocked = checkScope(trimmedMessage);
+  if (blocked) {
+    return NextResponse.json(blocked, { status: 200 });
+  }
+
+  // ── 3. Load conversation history ─────────────────────────────────────────
+  const fullHistory = getHistory(sessionId);
+
+  // Cap history to last MAX_HISTORY_TURNS turns to avoid context overflow
+  const history = fullHistory.slice(-MAX_HISTORY_TURNS);
+
+  // ── 4. Build messages array for LLM ──────────────────────────────────────
+  const messages: ChatMessage[] = [
+    { role: "system", content: SYSTEM_PROMPT },
+    ...history.map((m) => ({ role: m.role, content: m.content })),
+    { role: "user", content: trimmedMessage },
+  ];
+
+  // ── 5. Call LLM ───────────────────────────────────────────────────────────
+  let rawOutput: string;
+  try {
+    rawOutput = await callLLM(messages);
+  } catch (err) {
+    console.error("[/api/chat] LLM call failed:", err);
+    return NextResponse.json(
+      { error: "Failed to get a response from the AI model.", details: String(err) },
+      { status: 502 }
+    );
+  }
+
+  // ── 6. Parse & validate the LLM output against the response schema ───────
+  let structured;
+  try {
+    structured = parseResponse(rawOutput);
+  } catch (err) {
+    console.error("[/api/chat] Schema parse failure:", err, "raw output:", rawOutput);
+    return NextResponse.json(
+      { error: "Response did not match expected schema.", details: String(err) },
+      { status: 500 }
+    );
+  }
+
+  // ── 7. Persist the turn ───────────────────────────────────────────────────
+  // Store the parsed answer text, not the raw JSON — future turns feed this
+  // back to the LLM as conversation history, and it should read as prose.
+  appendTurn(sessionId, "user", trimmedMessage);
+  appendTurn(sessionId, "assistant", structured.answer);
+
+  // ── 8. Return ─────────────────────────────────────────────────────────────
+  return NextResponse.json(structured);
+}
