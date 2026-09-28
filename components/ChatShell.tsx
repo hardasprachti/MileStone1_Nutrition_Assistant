@@ -14,7 +14,10 @@ const FALLBACK_ERROR =
 // Split deploy (Vercel frontend → Railway backend): set NEXT_PUBLIC_API_BASE_URL
 // to the Railway origin. Unset (same-origin deploys, local dev) falls back to
 // a relative fetch against this app's own /api/chat route.
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+// Trailing slash is stripped defensively — a double slash (e.g. "https://host//api/chat")
+// makes Railway 308-redirect the request, and browsers refuse to follow a redirect
+// during a CORS preflight, which silently breaks every cross-origin request.
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/+$/, "");
 
 export default function ChatShell() {
   const [messages, setMessages] = useState<Message[]>([]);
