@@ -21,9 +21,14 @@ const MAX_HISTORY_TURNS = 10;
  * Only reflects the Origin header back when it matches ALLOWED_ORIGIN exactly.
  * Unset ALLOWED_ORIGIN (e.g. same-origin deploys) means no CORS headers are
  * added — the request only works same-origin, which is the safe default.
+ *
+ * ALLOWED_ORIGIN is normalized to strip a trailing slash — a browser's Origin
+ * header never has one, but it's an easy typo to paste into an env var (e.g.
+ * copying the URL straight from the browser bar), and a strict-equality check
+ * would otherwise fail every request silently with no CORS header at all.
  */
 function corsHeaders(req: NextRequest): HeadersInit {
-  const allowedOrigin = process.env.ALLOWED_ORIGIN;
+  const allowedOrigin = process.env.ALLOWED_ORIGIN?.replace(/\/+$/, "");
   const origin = req.headers.get("origin");
 
   if (!allowedOrigin || !origin || origin !== allowedOrigin) {
