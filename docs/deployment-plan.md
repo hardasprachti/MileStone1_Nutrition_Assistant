@@ -104,8 +104,8 @@ npm run build
 Both must exit 0 — this is exactly what Railway and Vercel will run during their own builds.
 
 **Exit criteria for Phase 1:**
-- [ ] `npm run lint` passes
-- [ ] `npm run build` passes locally
+- [x] `npm run lint` passes
+- [x] `npm run build` passes locally
 
 ---
 
@@ -125,18 +125,20 @@ git commit -m "feat: reskin frontend, complete Phase 5/6, add CORS + API base UR
 
 ### 2.2 Create the GitHub repo and push
 
+Already done — remote `origin` is
+[github.com/hardasprachti/MileStone1_Nutrition_Assistant](https://github.com/hardasprachti/MileStone1_Nutrition_Assistant),
+branch `master`.
+
 ```bash
-gh repo create nutrition-assistant --private --source=. --remote=origin
-# or manually create the repo on github.com, then:
-git remote add origin https://github.com/<you>/nutrition-assistant.git
-git branch -M main
-git push -u origin main
+git add .
+git commit -m "..."
+git push origin master
 ```
 
 **Exit criteria for Phase 2:**
-- [ ] All pending changes committed
-- [ ] `git status` clean
-- [ ] Remote `origin` set, pushed to GitHub
+- [x] All pending changes committed
+- [x] `git status` clean
+- [x] Remote `origin` set, pushed to GitHub
 
 ---
 
@@ -353,8 +355,8 @@ pushing, since a push here goes live on Railway (the real backend) immediately.
 
 | Phase | Deliverable | Done |
 |---|---|---|
-| 1 — Pre-Deploy Prep | Build verified locally | [ ] |
-| 2 — Push to GitHub | Repo pushed with latest frontend + CORS/API-base-URL code | [ ] |
+| 1 — Pre-Deploy Prep | Build verified locally | [x] |
+| 2 — Push to GitHub | Repo pushed with latest frontend + CORS/API-base-URL code | [x] |
 | 3 — Railway (backend) | Live, env vars set, `curl` smoke test passed | [ ] |
 | 4 — Vercel (frontend) | Live, calling Railway, CORS loop closed | [ ] |
 | 5 — Env Var Reference | Documented, no secrets leaked | [x] |
