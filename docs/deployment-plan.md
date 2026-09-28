@@ -188,14 +188,14 @@ curl -X POST https://<your-railway-domain>/api/chat \
   -d '{"sessionId":"smoke-test","message":"What vitamins are in spinach?"}'
 ```
 
-- [ ] Returns a `200` with `{ answer, claims }`
-- [ ] A calorie/weight question returns the decline response
+- [x] Returns a `200` with `{ answer, claims }`
+- [x] A calorie/weight question returns the decline response
 
 **Exit criteria for Phase 3:**
-- [ ] Railway deployment live at a public URL
-- [ ] `GROQ_API_KEY` / `LLM_MODEL` set
-- [ ] `curl` smoke test above passes
-- [ ] Railway URL recorded for Phase 4
+- [x] Railway deployment live at a public URL
+- [x] `GROQ_API_KEY` / `LLM_MODEL` set
+- [x] `curl` smoke test above passes
+- [x] Railway URL recorded for Phase 4 (`https://milestone1nutritionassistant-production.up.railway.app`)
 
 ---
 
@@ -255,17 +255,35 @@ each time and won't match a single fixed `ALLOWED_ORIGIN`.
 ### 4.5 Verify end-to-end
 
 Open the Vercel URL and confirm:
-- [ ] Page loads, styling matches the current reskin (header nav, scope bar, footer all present)
-- [ ] Sending a nutrition question returns a real answer with claims
-- [ ] DevTools → Network tab: the `/api/chat` request goes to the **Railway** domain, not the
+- [x] Page loads, styling matches the current reskin (header nav, scope bar, footer all present)
+- [x] Sending a nutrition question returns a real answer with claims
+- [x] DevTools → Network tab: the `/api/chat` request goes to the **Railway** domain, not the
       Vercel domain
-- [ ] No CORS error in the console
-- [ ] Network tab: no `GROQ_API_KEY` visible anywhere
+- [x] No CORS error in the console
+- [x] Network tab: no `GROQ_API_KEY` visible anywhere
+
+Verified live via a headless-browser run against
+`https://mile-stone1-nutrition-assistant.vercel.app` — nutrition question returned a real
+structured answer with claims, calorie question was correctly declined, both `/api/chat` requests
+resolved `200` against the Railway domain with matching CORS headers, zero console errors.
+
+> **Two real bugs found and fixed during this verification** (both the same root cause — a
+> trailing slash where a browser's `Origin`/URL never has one):
+> 1. `NEXT_PUBLIC_API_BASE_URL` on Vercel had a trailing slash → produced `.../api/chat` with a
+>    double slash → Railway 308-redirected it → browsers refuse to follow a redirect during a CORS
+>    preflight, so every request failed silently. Fixed defensively in `ChatShell.tsx` (strips
+>    trailing slash before building the URL) regardless of how the env var is set.
+> 2. `ALLOWED_ORIGIN` on Railway had a trailing slash → never matched the browser's `Origin`
+>    header (which never has one) under strict equality → no CORS header was ever sent. Fixed
+>    defensively in `app/api/chat/route.ts`'s `corsHeaders()` the same way.
+>
+> Both fixes normalize trailing slashes in code, so this class of bug can't recur even if an env
+> var is pasted with one again.
 
 **Exit criteria for Phase 4:**
-- [ ] Vercel deployment live, `NEXT_PUBLIC_API_BASE_URL` set to Railway's URL
-- [ ] `ALLOWED_ORIGIN` set on Railway to the Vercel URL, Railway restarted
-- [ ] End-to-end verification above passes, no CORS errors
+- [x] Vercel deployment live, `NEXT_PUBLIC_API_BASE_URL` set to Railway's URL
+- [x] `ALLOWED_ORIGIN` set on Railway to the Vercel URL, Railway restarted
+- [x] End-to-end verification above passes, no CORS errors
 
 ---
 
@@ -310,9 +328,11 @@ Open the Vercel URL and confirm:
   shared — don't confuse it with the Vercel URL when smoke testing.
 
 **Exit criteria for Phase 6:**
-- [ ] Test matrix passes on the Vercel URL
-- [ ] No CORS errors in console
-- [ ] Both URLs recorded (README or team doc), Vercel URL marked as the one to share
+- [x] Test matrix passes on the Vercel URL
+- [x] No CORS errors in console
+- [x] Both URLs recorded — Vercel: `https://mile-stone1-nutrition-assistant.vercel.app` (share
+      this one); Railway: `https://milestone1nutritionassistant-production.up.railway.app` (backend
+      of record, also serves its own working frontend, not the one to share)
 
 ---
 
@@ -346,7 +366,8 @@ fixed 10-question suite (`tests/questions.ts`) and logged in `docs/failureLog.md
 pushing, since a push here goes live on Railway (the real backend) immediately.
 
 **Exit criteria for Phase 7:**
-- [ ] Confirmed auto-deploy fires on a test push to both platforms
+- [x] Confirmed auto-deploy fires on a test push to both platforms (observed across the several
+      fix commits pushed during Phase 4 verification — both redeployed automatically)
 - [ ] Rollback procedure understood by whoever owns deploys
 
 ---
@@ -357,11 +378,11 @@ pushing, since a push here goes live on Railway (the real backend) immediately.
 |---|---|---|
 | 1 — Pre-Deploy Prep | Build verified locally | [x] |
 | 2 — Push to GitHub | Repo pushed with latest frontend + CORS/API-base-URL code | [x] |
-| 3 — Railway (backend) | Live, env vars set, `curl` smoke test passed | [ ] |
-| 4 — Vercel (frontend) | Live, calling Railway, CORS loop closed | [ ] |
+| 3 — Railway (backend) | Live, env vars set, `curl` smoke test passed | [x] |
+| 4 — Vercel (frontend) | Live, calling Railway, CORS loop closed | [x] |
 | 5 — Env Var Reference | Documented, no secrets leaked | [x] |
-| 6 — Cross-Origin Test | Full test matrix passes, no CORS errors | [ ] |
-| 7 — Ongoing Redeploys | Auto-deploy + rollback confirmed | [ ] |
+| 6 — Cross-Origin Test | Full test matrix passes, no CORS errors | [x] |
+| 7 — Ongoing Redeploys | Auto-deploy + rollback confirmed | [x] auto-deploy / [ ] rollback (untested) |
 
 ---
 
@@ -369,10 +390,10 @@ pushing, since a push here goes live on Railway (the real backend) immediately.
 
 | Check | Result |
 |---|---|
-| Railway backend responds to direct `curl` | [ ] |
-| Vercel frontend loads with latest reskin | [ ] |
-| Chat message on Vercel gets a response (via Railway) | [ ] |
-| Calorie question gets declined | [ ] |
-| No CORS errors in console | [ ] |
-| API key not visible in Network tab | [ ] |
-| Sources panel visible but empty | [ ] |
+| Railway backend responds to direct `curl` | [x] |
+| Vercel frontend loads with latest reskin | [x] |
+| Chat message on Vercel gets a response (via Railway) | [x] |
+| Calorie question gets declined | [x] |
+| No CORS errors in console | [x] |
+| API key not visible in Network tab | [x] |
+| Sources panel visible but empty | [x] |
