@@ -53,10 +53,19 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-elevation-1);
+  /* Lets .send hide its label based on the dock's own measured width
+     (see @container below) instead of the viewport's, which is what
+     actually matters here and sidesteps viewport-width edge cases. */
+  container-type: inline-size;
 }
 
 .form {
-  display: flex;
+  /* Grid instead of flex: minmax(0, 1fr) is an unambiguous "never
+     force overflow" sizing for the input column -- more reliable
+     across browsers than relying on flexbox's min-width:auto/shrink
+     behavior, which is what let the Send button get pushed off-screen. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-xs);
   width: 100%;
@@ -64,7 +73,7 @@
 }
 
 .input {
-  flex: 1;
+  width: 100%;
   min-width: 0;
   height: 44px;
   padding: 0 var(--space-md);
@@ -97,8 +106,10 @@
 .send {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   height: 44px;
+  min-width: 44px;
   padding: 0 var(--space-lg);
   border-radius: var(--radius-pill);
   border: none;
@@ -106,7 +117,7 @@
   color: var(--color-on-primary-container);
   font-size: 14px;
   font-weight: 600;
-  flex-shrink: 0;
+  white-space: nowrap;
   box-shadow: var(--shadow-glow-accent);
   transition: opacity 150ms ease-out, transform 100ms ease-out;
 }
@@ -139,12 +150,30 @@
   .chip {
     padding: 8px 12px;
   }
+}
 
+/* Primary mechanism: react to the dock's own measured width, not the
+   viewport's. Catches narrow layouts a viewport media query can miss
+   (in-app browsers, zoom, split-screen, odd reported viewport widths). */
+@container (max-width: 420px) {
   .send span {
     display: none;
   }
 
   .send {
     padding: 0 var(--space-md);
+  }
+}
+
+/* Fallback for the rare browser without container query support. */
+@supports not (container-type: inline-size) {
+  @media (max-width: 640px) {
+    .send span {
+      display: none;
+    }
+
+    .send {
+      padding: 0 var(--space-md);
+    }
   }
 }

@@ -90,6 +90,15 @@
   color: var(--color-text);
 }
 
+.claimText {
+  /* Without this, the bare text node can keep its unbroken single-line
+     width as a flex item and bleed past the bubble's edge instead of
+     wrapping, since .bubble itself has no overflow clipping. */
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .claimDot {
   width: 6px;
   height: 6px;

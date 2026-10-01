@@ -46,7 +46,7 @@ export default function MessageBubble({ message }: { message: Message }) {
             {message.claims.map((claim, i) => (
               <div className={styles.claimItem} key={i}>
                 <span className={styles.claimDot} aria-hidden="true" />
-                <span>{claim.claim_text}</span>
+                <span className={styles.claimText}>{claim.claim_text}</span>
               </div>
             ))}
           </div>
