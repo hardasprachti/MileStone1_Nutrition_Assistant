@@ -69,7 +69,9 @@
   background: var(--color-surface-low);
   border: 1px solid var(--color-border);
   color: var(--color-text);
-  font-size: 14px;
+  /* 16px, not 14px: iOS Safari auto-zooms the page on focus for any
+     input with a computed font-size below 16px. */
+  font-size: 16px;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4);
   outline: none;
   transition: border-color 150ms ease-out;
@@ -124,4 +126,22 @@
   font-size: 11px;
   color: var(--color-text-muted);
   padding: 0 var(--space-xs);
+}
+
+@media (max-width: 640px) {
+  .wrapper {
+    padding: var(--space-sm);
+  }
+
+  .chip {
+    padding: 8px 12px;
+  }
+
+  .send span {
+    display: none;
+  }
+
+  .send {
+    padding: 0 var(--space-md);
+  }
 }

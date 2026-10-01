@@ -1,11 +1,13 @@
 .header {
   flex-shrink: 0;
-  height: 64px;
+  min-height: 64px;
+  padding-top: env(safe-area-inset-top, 0px);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-md);
-  padding: 0 var(--gutter);
+  padding-left: max(var(--gutter), env(safe-area-inset-left, 0px));
+  padding-right: max(var(--gutter), env(safe-area-inset-right, 0px));
   background: var(--color-surface-container);
   border-bottom: 1px solid var(--color-surface-container-highest);
 }
@@ -36,11 +38,14 @@
 }
 
 .title {
+  min-width: 0;
   font-size: 16px;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--color-on-surface);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .status {
@@ -151,5 +156,22 @@
 @media (max-width: 640px) {
   .status span:last-child {
     display: none;
+  }
+
+  .header {
+    padding-left: max(var(--space-sm), env(safe-area-inset-left, 0px));
+    padding-right: max(var(--space-sm), env(safe-area-inset-right, 0px));
+    gap: var(--space-sm);
+  }
+
+  .brand {
+    gap: var(--space-sm);
+  }
+
+  /* Bump tap targets to the ~44px minimum recommended on iOS/Android. */
+  .iconButton,
+  .avatar {
+    width: 40px;
+    height: 40px;
   }
 }

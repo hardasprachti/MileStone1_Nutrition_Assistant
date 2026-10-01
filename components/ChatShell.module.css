@@ -18,6 +18,8 @@
   max-width: var(--content-max-width);
   margin: 0 auto;
   padding: var(--space-md) var(--margin);
+  padding-left: max(var(--margin), env(safe-area-inset-left, 0px));
+  padding-right: max(var(--margin), env(safe-area-inset-right, 0px));
   display: flex;
   flex-direction: column;
   gap: var(--space-lg);
@@ -144,6 +146,9 @@
   justify-content: space-between;
   gap: var(--space-sm);
   padding: var(--space-sm) var(--gutter);
+  padding-bottom: max(var(--space-sm), env(safe-area-inset-bottom, 0px));
+  padding-left: max(var(--gutter), env(safe-area-inset-left, 0px));
+  padding-right: max(var(--gutter), env(safe-area-inset-right, 0px));
   background: var(--color-surface-container);
   border-top: 1px solid var(--color-surface-container-highest);
   font-size: 11px;
@@ -160,6 +165,8 @@
 @media (max-width: 768px) {
   .content {
     padding: var(--space-sm);
+    padding-left: max(var(--space-sm), env(safe-area-inset-left, 0px));
+    padding-right: max(var(--space-sm), env(safe-area-inset-right, 0px));
   }
 
   .body {

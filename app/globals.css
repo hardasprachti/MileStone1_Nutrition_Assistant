@@ -69,6 +69,8 @@
 html {
   height: 100%;
   color-scheme: dark;
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
 }
 
 html,
@@ -86,6 +88,7 @@ body {
   font-family: var(--font-inter), Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
 }
 
 * {
@@ -102,10 +105,14 @@ a {
 button {
   font-family: inherit;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 input {
   font-family: inherit;
+  /* Keep at 16px+ on mobile — anything smaller triggers iOS Safari's
+     auto-zoom-on-focus, which then fails to zoom back out. */
+  touch-action: manipulation;
 }
 
 #__next {

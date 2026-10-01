@@ -62,6 +62,7 @@ export default function InputBox({ onSend, disabled }: InputBoxProps) {
             type="submit"
             className={styles.send}
             disabled={disabled || !value.trim()}
+            aria-label="Send message"
           >
             <span>Send</span>
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
